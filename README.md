@@ -1,4 +1,4 @@
 # Sensor
 
-![Sculk Sensor Block in Minecraft](banner.gif)
+![Sculk Sensor Block in Minecraft](banner.png)
 
