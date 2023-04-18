@@ -1,11 +1,15 @@
 package dev.authorises.services;
 
 import at.favre.lib.crypto.bcrypt.BCrypt;
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.model.UpdateOptions;
 import dev.authorises.access.Role;
 import dev.authorises.access.User;
+import dev.authorises.access.WebsocketClient;
 import dev.authorises.mongodb.MongoDBConnector;
+import io.javalin.websocket.WsContext;
 import org.bson.Document;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -22,11 +26,12 @@ import static com.mongodb.client.model.Updates.set;
 public class UserService {
 
     private static UserService instance;
-
-    private final Map<UUID, User> cachedUsers;
+    private HashMap<UUID, User> cachedUsers;
+    private BiMap<WsContext, WebsocketClient> websocketUsers;
 
     public UserService() {
-        this.cachedUsers = new HashMap<>();
+        cachedUsers = new HashMap<>();
+        websocketUsers = HashBiMap.create();
     }
 
 
@@ -35,6 +40,10 @@ public class UserService {
             instance = new UserService();
         }
         return instance;
+    }
+
+    public String genHash(String input){
+        return BCrypt.withDefaults().hashToString(12, input.toCharArray());
     }
 
     public boolean hasAccess(Set<Role> requiredRoles, Role has) {
@@ -53,7 +62,7 @@ public class UserService {
      * @param role The role of the new account
      */
     public void createUser(@NotNull String username, @NotNull String password, @NotNull Role role){
-        upsertUser(new User(username, role, BCrypt.withDefaults().hashToString(12, password.toCharArray())));
+        insertUser(new User(username, role, genHash(password)));
     }
 
     /**
@@ -66,26 +75,37 @@ public class UserService {
                 .getDatabase("sensor")
                 .getCollection("users")
                 .deleteOne(new Document("_id", userId.toString()));
-        if(cachedUsers.containsKey(userId)){
-            cachedUsers.remove(userId);
-        }
+
+        cachedUsers.remove(userId);
     }
 
 
     /**
-     * Inserts/Updates a user
+     * Updates a user
      * @param user User to update.
      */
-    public void upsertUser(@NotNull User user){
+    public void updateUser(@NotNull User user){
         MongoDBConnector
                 .getInstance()
                 .getClient()
                 .getDatabase("sensor")
                 .getCollection("users")
-                .updateOne(new Document("_id", user.getUserId().toString()), user.generateDocument(), new UpdateOptions().upsert(true));
+                .replaceOne(new Document("_id", user.getUserId().toString()), user.generateDocument());
+    }
+
+    /**
+     * Inserts a user
+     * @param user User to update.
+     */
+    public void insertUser(@NotNull User user){
+        MongoDBConnector
+                .getInstance()
+                .getClient()
+                .getDatabase("sensor")
+                .getCollection("users")
+                .insertOne(user.generateDocument());
 
         cachedUsers.put(user.getUserId(), user);
-
     }
 
     /**
@@ -94,7 +114,7 @@ public class UserService {
      */
     public User getUser(@NotNull UUID uuid){
 
-        if(cachedUsers.containsKey(uuid)){
+        if (cachedUsers.containsKey(uuid)) {
             return cachedUsers.get(uuid);
         }
 
@@ -121,12 +141,29 @@ public class UserService {
                 .getClient()
                 .getDatabase("sensor")
                 .getCollection("users")
-                .find(new Document("username", Pattern.compile("/^"+Pattern.quote(username)+"/i")));
+                .find(new Document("username", new Document("$regex",username).append("$options","i")));
         if(find.first()!=null){
             return new User(find.first());
         }
 
         return null;
+    }
+
+    public WebsocketClient getWebsocketClient(WsContext context){
+        return websocketUsers.get(context);
+    }
+
+    public WsContext getWebsocket(User searchUser){
+        for(Map.Entry<WsContext, WebsocketClient> entry : websocketUsers.entrySet()){
+            if(entry.getValue().user==searchUser){
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
+    public BiMap<WsContext, WebsocketClient> getWebsocketUsers(){
+        return websocketUsers;
     }
 
 

@@ -9,7 +9,7 @@ public class User {
     private final UUID userId;
     private final String userName;
     private final Role userRole;
-    private final String passwordHash;
+    private String passwordHash;
 
     /**
      * Creating a new user
@@ -71,6 +71,10 @@ public class User {
      */
     public String getPasswordHash() {
         return passwordHash;
+    }
+
+    public void setPasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
     }
 
 }
